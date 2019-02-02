@@ -1886,3 +1886,17 @@ def test_will_evict_entries_from_the_cache(monkeypatch):
     # calls will have been evicted, so each call to
     # cached_test_function will have to reexecute.
     assert count[0] == 30
+
+
+def test_block_programs_are_adaptive():
+    @shrinking_from(hbytes(1000) + hbytes([1]))
+    def shrinker(data):
+        while not data.draw_bits(1):
+            pass
+        data.mark_interesting()
+
+    shrinker.clear_passes()
+    shrinker.add_new_pass(block_program("X"))
+    shrinker.shrink()
+    assert len(shrinker.shrink_target.buffer) == 1
+    assert shrinker.calls <= 20

@@ -1560,24 +1560,46 @@ def block_program(description):
         n = len(description)
         i = 0
         while i + n <= len(self.shrink_target.blocks):
-            attempt = bytearray(self.shrink_target.buffer)
-            failed = False
-            for k, d in reversed(list(enumerate(description))):
-                j = i + k
-                u, v = self.blocks[j].bounds
-                if d == "-":
-                    value = int_from_bytes(attempt[u:v])
-                    if value == 0:
-                        failed = True
-                        break
-                    else:
-                        attempt[u:v] = int_to_bytes(value - 1, v - u)
-                elif d == "X":
-                    del attempt[u:v]
-                else:  # pragma: no cover
-                    assert False, "Unrecognised command %r" % (d,)
-            if failed or not self.incorporate_new_buffer(attempt):
-                i += 1
+            original = self.shrink_target
+
+            def run_repeatedly(repeats):
+                """Attempt to run the block program ``repeats`` times,
+                in order to allow block program passes to be adaptive -
+                to make k changes in O(log(k)) test function calls.
+
+                Note that the blocks are based on the original version
+                of the shrink target and do not take into account changes
+                to the block structure. Thus ``run_repeatedly`` may not
+                make exactly the same changes as running the block program
+                ``repeats`` many times. This is not a correctness issue in
+                that it is always valid to try the resulting buffer, but
+                in cases where the structure of the shrink target changes
+                a lot from running the block program we may fail to be
+                adaptive and thus perform worse than we could have. On
+                average we expect the effort of doing the book keeping
+                to be worse than getting supoptimal performance in this case.
+                """
+                attempt = bytearray(original.buffer)
+                for _ in hrange(repeats):
+                    for k, d in reversed(list(enumerate(description))):
+                        j = i + k
+                        u, v = original.blocks[j].bounds
+                        if v > len(attempt):
+                            return False
+                        if d == "-":
+                            value = int_from_bytes(attempt[u:v])
+                            if value == 0:
+                                return False
+                            else:
+                                attempt[u:v] = int_to_bytes(value - 1, v - u)
+                        elif d == "X":
+                            del attempt[u:v]
+                        else:  # pragma: no cover
+                            assert False, "Unrecognised command %r" % (d,)
+                return self.incorporate_new_buffer(attempt)
+
+            find_integer(run_repeatedly)
+            i += 1
 
     run.command = description
     run.__name__ = "block_program(%r)" % (description,)
